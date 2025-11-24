@@ -213,4 +213,41 @@ contract PuppyRaffleTest is Test {
         puppyRaffle.withdrawFees();
         assertEq(address(feeAddress).balance, expectedPrizeAmount);
     }
+
+
+
+    function testDosAttackPossible() external{
+        uint256 playersNum = 100;
+        address[] memory players = new address[](playersNum);
+        for(uint256 i = 0; i < players.length; i++){
+            players[i] = address(i);
+        }
+        uint256 startingGas = gasleft();
+        puppyRaffle.enterRaffle{value: entranceFee * players.length}(players);
+        uint256 endingGas = gasleft();
+        uint256 gasUsed = startingGas - endingGas;
+
+        console.log("the gas used by first 100 players is", gasUsed);
+
+        // now for the next 100 players
+
+        address[] memory nextPlayers = new address[](100);
+        for(uint256 j = 0; j < nextPlayers.length; j++){
+            nextPlayers[j] = address(j+100);
+        }
+
+        uint256 startingGas2 = gasleft();
+        puppyRaffle.enterRaffle{value: entranceFee * nextPlayers.length}(nextPlayers);
+        uint256 endingGas2 = gasleft();
+        uint256 gasUsed2 = startingGas2 - endingGas2;
+
+        console.log("the gas used by last 100 players is", gasUsed2);
+
+        assert(gasUsed < gasUsed2);
+    }
+
+
+
+
+
 }
