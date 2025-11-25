@@ -99,6 +99,7 @@ contract PuppyRaffle is ERC721, Ownable {
         require(playerAddress == msg.sender, "PuppyRaffle: Only the player can refund");
         require(playerAddress != address(0), "PuppyRaffle: Player already refunded, or is not active");
 
+        // @audit Reentrancy attack here
         payable(msg.sender).sendValue(entranceFee);
 
         players[playerIndex] = address(0);
@@ -132,6 +133,9 @@ contract PuppyRaffle is ERC721, Ownable {
         uint256 totalAmountCollected = players.length * entranceFee;
         uint256 prizePool = (totalAmountCollected * 80) / 100;
         uint256 fee = (totalAmountCollected * 20) / 100;
+
+        // @audit Overflow issue or attack possible here
+        // fixes: use new version of solidity or use bigger uint
         totalFees = totalFees + uint64(fee);
 
         uint256 tokenId = totalSupply();
@@ -156,6 +160,7 @@ contract PuppyRaffle is ERC721, Ownable {
 
     /// @notice this function will withdraw the fees to the feeAddress
     function withdrawFees() external {
+        // @audit mishandelling of eth here.
         require(address(this).balance == uint256(totalFees), "PuppyRaffle: There are currently players active!");
         uint256 feesToWithdraw = totalFees;
         totalFees = 0;
