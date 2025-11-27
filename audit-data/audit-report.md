@@ -1,3 +1,132 @@
+---
+title: Protocol Audit Report
+author: Mayank
+date: November 27, 2025
+header-includes:
+  - \usepackage{titling}
+  - \usepackage{graphicx}
+---
+
+\begin{titlepage}
+    \centering
+    \begin{figure}[h]
+        \centering
+        \includegraphics[width=0.5\textwidth]{logo.png} 
+    \end{figure}
+    \vspace*{2cm}
+    {\Huge\bfseries PuppyRaffle Audit Report\par}
+    \vspace{1cm}
+    {\Large Version 1.0\par}
+    \vspace{2cm}
+    {\Large\itshape Cyfrin.io\par}
+    \vfill
+    {\large \today\par}
+\end{titlepage}
+
+\maketitle
+
+<!-- Your report starts here! -->
+
+Prepared by: [Mayank](https://cyfrin.io)
+Lead Auditors: 
+- Mayank Mokta
+
+# Table of Contents
+- [Table of Contents](#table-of-contents)
+- [Protocol Summary](#protocol-summary)
+- [Disclaimer](#disclaimer)
+- [Risk Classification](#risk-classification)
+- [Audit Details](#audit-details)
+  - [Scope](#scope)
+  - [Roles](#roles)
+- [Executive Summary](#executive-summary)
+  - [Issues found](#issues-found)
+- [Findings](#findings)
+- [High](#high)
+    - [\[H-1\] There is a possible Reentrancy attack happening in `PuppyRaffle::refund`.](#h-1-there-is-a-possible-reentrancy-attack-happening-in-puppyrafflerefund)
+    - [\[H-2\] Weak randomness in `PuppyRaffle::selectWinner` function as it allows the users to influence and  predict the winner or even predict the winning puppy](#h-2-weak-randomness-in-puppyraffleselectwinner-function-as-it-allows-the-users-to-influence-and--predict-the-winner-or-even-predict-the-winning-puppy)
+    - [\[H-3\] In function `PuppyRaffle::selectWinner` Integer overflow is happening.](#h-3-in-function-puppyraffleselectwinner-integer-overflow-is-happening)
+- [Medium](#medium)
+    - [\[M-1\] There can be a denial of servies (DoS) attack in the function `PuppyRaffle::enterRaffle`.](#m-1-there-can-be-a-denial-of-servies-dos-attack-in-the-function-puppyraffleenterraffle)
+    - [\[M-2\] Smart contract wallet raffle winner without `fallback` or `receive` functions.](#m-2-smart-contract-wallet-raffle-winner-without-fallback-or-receive-functions)
+    - [\[M-3\] Mishandeling of Eth happening in `PuppyRaffle::withdrawFees` function](#m-3-mishandeling-of-eth-happening-in-puppyrafflewithdrawfees-function)
+- [Low](#low)
+    - [\[L-1\] `PuppyRaffle::getActivePlayerIndex` returns zero if player not found but it still returns zero if the player is at index 0](#l-1-puppyrafflegetactiveplayerindex-returns-zero-if-player-not-found-but-it-still-returns-zero-if-the-player-is-at-index-0)
+- [Informational](#informational)
+    - [\[I-1\] Solidity pragma version should be specific, not wide](#i-1-solidity-pragma-version-should-be-specific-not-wide)
+    - [\[I-2\] Solidity pragma version used should be a bit latest](#i-2-solidity-pragma-version-used-should-be-a-bit-latest)
+    - [\[I-3\] Missing checks for `address(0)` when assigning values to address state variables](#i-3-missing-checks-for-address0-when-assigning-values-to-address-state-variables)
+    - [\[I-4\] `PuppyRaffle::selectWinner` does not follow CEI, which is a bad practise](#i-4-puppyraffleselectwinner-does-not-follow-cei-which-is-a-bad-practise)
+    - [\[I-5\] Usage of magic numbers](#i-5-usage-of-magic-numbers)
+    - [\[I-6\] Event can be emitted](#i-6-event-can-be-emitted)
+    - [\[I-7\] Using `indexed` in your events](#i-7-using-indexed-in-your-events)
+- [Gas](#gas)
+    - [\[G-1\] Some of the state variables should be marked as constant or immutable](#g-1-some-of-the-state-variables-should-be-marked-as-constant-or-immutable)
+    - [\[G-2\] Function `PuppyRaffle::enterRaffle` can be marked as external instead of public](#g-2-function-puppyraffleenterraffle-can-be-marked-as-external-instead-of-public)
+    - [\[G-3\] Storage variable in a loop should be cached](#g-3-storage-variable-in-a-loop-should-be-cached)
+
+# Protocol Summary
+
+This project is to enter a raffle to win a cute doge NFT and ETH. The protocol has the following:
+
+1. Call the `enterraffle` function which has a parameter of `address[] participants` which holds alist of entrants who entered.
+2. Duplicate addresses are not allowed and minimum of 4 players should be there to generate the winner of the raffle.
+3. User are allowed to get a refund of their enterance fee before the raffle gets over, just by call `refund` function.
+4. The owner of the contract can set a `feeAddress` to take cut of the `value` i.e. 20%, and the rest goes to the winner.
+
+# Disclaimer
+
+The YOUR_NAME_HERE team makes all effort to find as many vulnerabilities in the code in the given time period, but holds no responsibilities for the findings provided in this document. A security audit by the team is not an endorsement of the underlying business or product. The audit was time-boxed and the review of the code was solely on the security aspects of the Solidity implementation of the contracts.
+
+# Risk Classification
+
+|            |        | Impact |        |     |
+| ---------- | ------ | ------ | ------ | --- |
+|            |        | High   | Medium | Low |
+|            | High   | H      | H/M    | M   |
+| Likelihood | Medium | H/M    | M      | M/L |
+|            | Low    | M      | M/L    | L   |
+
+We use the [CodeHawks](https://docs.codehawks.com/hawks-auditors/how-to-evaluate-a-finding-severity) severity matrix to determine severity. See the documentation for more details.
+
+# Audit Details 
+
+**Below we have our commit hash**
+
+```
+63541e54586cca26e0a69b3ddc6b8fed150e7d2d
+```
+
+## Scope 
+
+```
+./src/PuppyRaffle.sol
+```
+
+## Roles
+
+- Owner: The owner of the contract who can decides whom to send the fees through `changeFeeAddress` function.
+- Player: Participants of the raffle, has the chance to win the raffle and can call the `refund` function to get their entrance fee back.
+
+# Executive Summary
+
+I just loved auditing this codebase, in my beginner learing phase and i learned a lot of new things auditing this codebase.
+
+## Issues found
+
+| Severity | Number of issues found |
+| -------- | ---------------------- |
+| HIGH     | 3                      |
+| MEDIUM   | 3                      |
+| LOW      | 1                      |
+| INFO     | 7                      |
+| GAS      | 3                      |
+| TOTAL    | 17                     |
+
+
+# Findings
+
+# High
 
 ### [H-1] There is a possible Reentrancy attack happening in `PuppyRaffle::refund`.
 
@@ -184,6 +313,7 @@ function testThereIsOverflowIssue() external {
 
 
 
+# Medium
 
 
 ### [M-1] There can be a denial of servies (DoS) attack in the function `PuppyRaffle::enterRaffle`.
@@ -358,8 +488,8 @@ function withdrawFees() external {
 
 
 
+# Low 
 
-# Low
 
 ### [L-1] `PuppyRaffle::getActivePlayerIndex` returns zero if player not found but it still returns zero if the player is at index 0
 
@@ -393,42 +523,7 @@ You can even use `int256` where the function returns -1 if the player in not in 
 
 
 
-# Gas
-
-### [G-1] Some of the state variables should be marked as constant or immutable
-
-Reading from the storage can be more gas expensive as compared to readin from constants or immutables.
-
-Instances: 
-- `PuppyRaffle::raffleDuration` should be marked as `immutable`.
-- `PuppyRaffle::commonImageUri` should be marked as `constant`.
-- `PuppyRaffle::rareImageUri` should be marked as `constant`.
-- `PuppyRaffle::legendaryImageUri` should be marked as `constant`.
-
-
-### [G-2] Function `PuppyRaffle::enterRaffle` can be marked as external instead of public
-
-Consider using `external` instead of public in the function `PuppyRaffle::enterRaffle` as enterRaffle function in being used in the contract anywhere so marking it as external can be a good practise to save gas.
-
-
-### [G-3] Storage variable in a loop should be cached
-
-Everytime `players.length` gets called it gets read from storage, while using a variable reads from memory which is more gas efficient as of storage.
-
-```diff
-+        uint256 playersLength = players.length
--        for (uint256 i = 0; i < players.length - 1; i++) {
-+         for (uint256 i = 0; i < playersLength - 1; i++) {
--            for (uint256 j = i + 1; j < players.length; j++) {
-+            for (uint256 j = i + 1; j < playersLength; j++) {
-                require(players[i] != players[j], "PuppyRaffle: Duplicate player");
-            }
-        }
-  
-
-```
-
-
+# Informational
 
 ### [I-1] Solidity pragma version should be specific, not wide
 
@@ -510,5 +605,37 @@ Consider using `indexed` keyword in your events as it can make easy to find anyt
 ```
 
 
+# Gas 
+
+### [G-1] Some of the state variables should be marked as constant or immutable
+
+Reading from the storage can be more gas expensive as compared to readin from constants or immutables.
+
+Instances: 
+- `PuppyRaffle::raffleDuration` should be marked as `immutable`.
+- `PuppyRaffle::commonImageUri` should be marked as `constant`.
+- `PuppyRaffle::rareImageUri` should be marked as `constant`.
+- `PuppyRaffle::legendaryImageUri` should be marked as `constant`.
 
 
+### [G-2] Function `PuppyRaffle::enterRaffle` can be marked as external instead of public
+
+Consider using `external` instead of public in the function `PuppyRaffle::enterRaffle` as enterRaffle function in being used in the contract anywhere so marking it as external can be a good practise to save gas.
+
+
+### [G-3] Storage variable in a loop should be cached
+
+Everytime `players.length` gets called it gets read from storage, while using a variable reads from memory which is more gas efficient as of storage.
+
+```diff
++        uint256 playersLength = players.length
+-        for (uint256 i = 0; i < players.length - 1; i++) {
++         for (uint256 i = 0; i < playersLength - 1; i++) {
+-            for (uint256 j = i + 1; j < players.length; j++) {
++            for (uint256 j = i + 1; j < playersLength; j++) {
+                require(players[i] != players[j], "PuppyRaffle: Duplicate player");
+            }
+        }
+  
+
+```

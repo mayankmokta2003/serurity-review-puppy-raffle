@@ -55,6 +55,7 @@ contract PuppyRaffle is ERC721, Ownable {
     string private constant LEGENDARY = "legendary";
 
     // Events
+    // @audit-done- indexed can be used
     event RaffleEnter(address[] newPlayers);
     event RaffleRefunded(address player);
     event FeeAddressChanged(address newFeeAddress);
@@ -82,7 +83,7 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice they have to pay the entrance fee * the number of players
     /// @notice duplicate entrants are not allowed
     /// @param newPlayers the list of players to enter the raffle
-    // @audit-gas: enterRaffle can be external as not used in this contract anywhere
+    // @audit-gas-done: enterRaffle can be external as not used in this contract anywhere
     function enterRaffle(address[] memory newPlayers) public payable {
         require(msg.value == entranceFee * newPlayers.length, "PuppyRaffle: Must send enough to enter raffle");
         // @audit save-gas: instead of newPlayers.length use uint256 plength = newPlayers.length and use plength.
@@ -137,17 +138,17 @@ contract PuppyRaffle is ERC721, Ownable {
     function selectWinner() external {
         require(block.timestamp >= raffleStartTime + raffleDuration, "PuppyRaffle: Raffle not over");
         require(players.length >= 4, "PuppyRaffle: Need at least 4 players");
-        // @audit should use chainlink vrf to generate proper random number its safe approach.
+        // @audit-done should use chainlink vrf to generate proper random number its safe approach.
         uint256 winnerIndex =
             uint256(keccak256(abi.encodePacked(msg.sender, block.timestamp, block.difficulty))) % players.length;
         address winner = players[winnerIndex];
         uint256 totalAmountCollected = players.length * entranceFee;
 
-        // @audit instead of using magic numbers use constants
+        // @audit-done instead of using magic numbers use constants
         uint256 prizePool = (totalAmountCollected * 80) / 100;
         uint256 fee = (totalAmountCollected * 20) / 100;
 
-        // @audit Overflow issue or attack possible here
+        // @audit-done Overflow issue or attack possible here
         // fixes: use new version of solidity or use bigger uint
         totalFees = totalFees + uint64(fee);
 
@@ -166,7 +167,7 @@ contract PuppyRaffle is ERC721, Ownable {
         delete players;
         raffleStartTime = block.timestamp;
         previousWinner = winner;
-        // @audit what if the winner contract doesn't have a fallback or receive function??????
+        // @audit-done what if the winner contract doesn't have a fallback or receive function??????
         (bool success,) = winner.call{value: prizePool}("");
         require(success, "PuppyRaffle: Failed to send prize pool to winner");
         // @audit-done- should write above .call
@@ -175,9 +176,8 @@ contract PuppyRaffle is ERC721, Ownable {
 
     /// @notice this function will withdraw the fees to the feeAddress
     function withdrawFees() external {
-        // @audit mishandelling of eth here.
-        // @audit should check here if the receivers address is 0 or what if reverts???
-        // @audit can emit an event here as state is changing somehow
+        // @audit-done mishandelling of eth here.
+        // @audit-done can emit an event here as state is changing somehow
         require(address(this).balance == uint256(totalFees), "PuppyRaffle: There are currently players active!");
         uint256 feesToWithdraw = totalFees;
         totalFees = 0;
