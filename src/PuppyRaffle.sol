@@ -91,7 +91,7 @@ contract PuppyRaffle is ERC721, Ownable {
         }
 
         // Check for duplicates
-        // @audit DOS attack:
+        // @audit-done DOS attack:
         for (uint256 i = 0; i < players.length - 1; i++) {
             for (uint256 j = i + 1; j < players.length; j++) {
                 require(players[i] != players[j], "PuppyRaffle: Duplicate player");
@@ -102,13 +102,13 @@ contract PuppyRaffle is ERC721, Ownable {
 
     /// @param playerIndex the index of the player to refund. You can find it externally by calling `getActivePlayerIndex`
     /// @dev This function will allow there to be blank spots in the array
-    // @audit-gas: refund can be external as not used in this contract anywhere
+    // @audit-gas-done: refund can be external as not used in this contract anywhere
     function refund(uint256 playerIndex) public {
         address playerAddress = players[playerIndex];
         require(playerAddress == msg.sender, "PuppyRaffle: Only the player can refund");
         require(playerAddress != address(0), "PuppyRaffle: Player already refunded, or is not active");
 
-        // @audit Reentrancy attack here
+        // @audit-done- Reentrancy attack here
         payable(msg.sender).sendValue(entranceFee);
 
         players[playerIndex] = address(0);
@@ -118,6 +118,7 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice a way to get the index in the array
     /// @param player the address of a player in the raffle
     /// @return the index of the player in the array, if they are not active, it returns 0
+    // @audit-done- if player is at index 0 it returns 0 but there is no player it still returns 0;
     function getActivePlayerIndex(address player) external view returns (uint256) {
         for (uint256 i = 0; i < players.length; i++) {
             if (players[i] == player) {
@@ -165,9 +166,10 @@ contract PuppyRaffle is ERC721, Ownable {
         delete players;
         raffleStartTime = block.timestamp;
         previousWinner = winner;
+        // @audit what if the winner contract doesn't have a fallback or receive function??????
         (bool success,) = winner.call{value: prizePool}("");
         require(success, "PuppyRaffle: Failed to send prize pool to winner");
-        // @audit should white the below code above .call
+        // @audit-done- should write above .call
         _safeMint(winner, tokenId);
     }
 

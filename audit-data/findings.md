@@ -1,5 +1,5 @@
 
-### [H-#] There is a possible Reentrancy attack happening in `PuppyRaffle::refund`.
+### [H-1] There is a possible Reentrancy attack happening in `PuppyRaffle::refund`.
 
 **Description:** In the function `PuppyRaffle::refund`, you are sending the refund to the user and after sending updating the state of the mapping which is the reason why  reentract attack can happen very easily. Remember the rule to first update the state and then execute the code or just follow CEI rule i.e. checks, effects, implementation.
 
@@ -111,7 +111,82 @@ function refund(uint256 playerIndex) public {
 
 
 
-### [M-#] There can be a denial of servies (DoS) attack in the function `PuppyRaffle::enterRaffle`.
+### [H-2] Weak randomness in `PuppyRaffle::selectWinner` function as it allows the users to influence and  predict the winner or even predict the winning puppy
+
+**Description** Hashing `msg.sender`, `block.timestamp` and `block.difficulty` together can create a predictable number and which is definitely not a good random number.
+
+Even users can front-run this function and call `refund` if they see they are not the winner.
+
+**Impact** Any user can influence the winner of the raffle, winning the money and selecting the `rarest` puppy, making the entire raffle worthless.
+
+**Proof of Concept** 
+1. Validaters can know ahead of time the `block.timestamp` and `block.difficulty`, so that to predict when/how to participate.
+2. User can mine/manipulate their `msg.sender` value to result in their address being used to generate the winner.
+3. User can revert the `selectWinner` transaction if they don't like the winner or the resulting puppy.
+
+**Recommended Mitigation:** Consider using a cryptographically provable random number generator such as Chainlink VRF.
+
+
+
+
+### [H-3] In function `PuppyRaffle::selectWinner` Integer overflow is happening.
+
+**Description** There is undoubtly Integer overflow happening in the function `PuppyRaffle::selectWinner` as you have used uint64 in you function which has a limited capacity to keep any value and if the value exceeds its limit the integer resets to zero and easilty you can loose Eth. Although solidity resolved this issue in the newer version of pragma solidity but as you are using the older version of solidity Integer overflow can easily happen.
+
+**Impact** The impact can be very high as when the limit exceed of the `uint64 totalFees` the value again starts from zero and the previous funds can never be recovered.
+
+**Proof of Concept** The below code shows that how easily you can loose a big amount of your `uint64 totalFees` in the function `PuppyRaffle::selectWinner`
+
+
+
+<details>
+<summary>Proof of Code</summary>
+
+Add the below test in your `PuppyRaffleTest.t.sol`.
+
+```javascript
+
+function testThereIsOverflowIssue() external {
+        address[] memory players = new address[](4);
+        players[0] = address(1001);
+        players[1] = address(1002);
+        players[2] = address(1003);
+        players[3] = address(1004);
+        puppyRaffle.enterRaffle{value: entranceFee * 4}(players);
+        vm.warp(block.timestamp + duration + 1);
+        puppyRaffle.selectWinner();
+        uint256 startingFee = puppyRaffle.totalFees();
+        console.log("the starting total fees is: ", startingFee);
+
+        // now next raffle begins
+        uint256 totalPlayers = 89;
+        address[] memory newPlayers = new address[](totalPlayers);
+        for(uint256 i=0; i<newPlayers.length; i++){
+            newPlayers[i] = address(i);
+        }
+        puppyRaffle.enterRaffle{value: entranceFee * totalPlayers}(newPlayers);
+        vm.warp(block.timestamp + duration + 1);
+        puppyRaffle.selectWinner();
+        uint256 endingFee = puppyRaffle.totalFees();
+        console.log("the ending total fees is: ", endingFee);
+
+        assert(startingFee > endingFee);
+    }
+
+```
+
+</details>
+
+**Recommended Mitigation:** 
+1. Use a newer version solidity.
+2. I highly recommend you to use `uint256` instead of uint64 as `uint256` has more capacity to hold value as of uint64.
+
+
+
+
+
+
+### [M-1] There can be a denial of servies (DoS) attack in the function `PuppyRaffle::enterRaffle`.
 
 **Description:** The function `PuppyRaffle::enterRaffle` loops through the `players` to check for duplicates. Which is a issue as longer the `PuppyRaffle::players` array becomes the more it has to loop through the array and check for duplicates. This means that the gas cost for the  players who entered right after the raffle starts will be less as complared to the players entering after and after. So more the players gets added to the `PuppyRaffle::players` array the more gas will be used.
 
@@ -191,6 +266,61 @@ function enterRaffle(address[] memory newPlayers) public payable {
 
 
 
+
+### [M-2] Smart contract wallet raffle winner without `fallback` or `receive` functions.
+
+**Description** In the function `PuppyRaffle::selectWinner` when the winner gets selected, we send the `prizePool` to the winner but if the winner contract doesn't have `fallback` or `receive` function then it would create a big issue as the new raffle would never start again and will not delete current players.
+
+**Impact** The function `PuppyRaffle::selectWinner` would revert many times, making lottery reset very difficult.
+
+**Proof of Concept**
+
+1. 10 smart contracts enters the raffle without having `fallback` or `receive` functions.
+2. The lottery end and the winner gets selected.
+3. But `PuppyRaffle::selectWinner` function wouldn't work, event though the lottery is over.
+
+**Recommended Mitigation:**
+
+1. Do not allow smart contracts entering the raffle. (not recommended)
+2. Create a mapping of address so that the winners could pull out their prize money instead of us pushing them. By creating a new `claimPrize` function and only winners are allowed to claim.
+> Pull over Push
+
+
+
+# Low
+
+### [L-1] `PuppyRaffle::getActivePlayerIndex` returns zero if player not found but it still returns zero if the player is at index 0
+
+**Description** If a player is at index 0 the function `PuppyRaffle::getActivePlayerIndex` will return 0, but if the player is not found in the array `players` then the function still returns zero as you have mentioned the function will returns zero if player not found.
+
+```javascript
+
+function getActivePlayerIndex(address player) external view returns (uint256) {
+        for (uint256 i = 0; i < players.length; i++) {
+            if (players[i] == player) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+```
+
+**Impact** The player as index 0 of `PuppyRaffle::players` might think that he has not entered the raffle as the function `PuppyRaffle::getActivePlayerIndex` will return 0, so he will alagin try to re-enter which will waste gas.
+
+**Proof of Concept** 
+
+1. User enters the raffle, they are the first enterant.
+2. `PuppyRaffle::getActivePlayerIndex` returns 0.
+3. User thinks he hasn't entered the raffle as function returns 0.
+
+**Recommended Mitigation:** 
+The recommendation is to use revert if the player in not in the array `PuppyRaffle::players` instead of 0.
+
+You can even use `int256` where the function returns -1 if the player in not in the array.
+
+
+
 # Gas
 
 ### [G-1] Some of the state variables should be marked as constant or immutable
@@ -247,5 +377,44 @@ Consider suing checks before assigning values to address because what if the add
 
 
 
-### [I-4] 
+### [I-4] `PuppyRaffle::selectWinner` does not follow CEI, which is a bad practise
+
+Always follow CEI (Checks, Effects, Interactions) in every function.
+
+```diff
+
+        previousWinner = winner;
++       _safeMint(winner, tokenId);
+        (bool success,) = winner.call{value: prizePool}("");
+        require(success, "PuppyRaffle: Failed to send prize pool to winner");
+-       _safeMint(winner, tokenId);
+
+```
+
+
+### [I-5] Usage of magic numbers
+
+Using magic numbers is not a good practise instead constant variables should be used to make the code more readable.
+
+Examples-
+
+```javascript
+        uint256 prizePool = (totalAmountCollected * 80) / 100;
+        uint256 fee = (totalAmountCollected * 20) / 100;
+```
+
+Instead you could use something like: 
+
+```javascript
+
+uint256 public constant PRICE_POOL_PERCENTAGE = 80;
+uint256 public constant POOL_PRECISION = 100;
+uint256 public constant FEE_PERCENTAGE = 20;
+
+uint256 prizePool = (totalAmountCollected * PRICE_POOL_PERCENTAGE) / POOL_PRECISION;
+uint256 fee = (totalAmountCollected * FEE_PERCENTAGE) / POOL_PRECISION;
+
+```
+
+
 
