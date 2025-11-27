@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.7.6;
+// @audit why are you using so old version and always use specific version instead of wide versions.
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -21,6 +22,7 @@ contract PuppyRaffle is ERC721, Ownable {
     uint256 public immutable entranceFee;
 
     address[] public players;
+    // @audit-done- raffleDuration can be immutable
     uint256 public raffleDuration;
     uint256 public raffleStartTime;
     address public previousWinner;
@@ -35,16 +37,19 @@ contract PuppyRaffle is ERC721, Ownable {
     mapping(uint256 => string) public rarityToName;
 
     // Stats for the common puppy (pug)
+    // @audit-done- saving-gas: use constant with commonImageUri
     string private commonImageUri = "ipfs://QmSsYRx3LpDAb1GZQm7zZ1AuHZjfbPkD6J7s9r41xu1mf8";
     uint256 public constant COMMON_RARITY = 70;
     string private constant COMMON = "common";
 
     // Stats for the rare puppy (st. bernard)
+    // @audit-done- saving-gas: use constant with rareImageUri
     string private rareImageUri = "ipfs://QmUPjADFGEKmfohdTaNcWhp7VGk26h5jXDA7v3VtTnTLcW";
     uint256 public constant RARE_RARITY = 25;
     string private constant RARE = "rare";
 
     // Stats for the legendary puppy (shiba inu)
+    // @audit-done- saving-gas: use constant with legendaryImageUri
     string private legendaryImageUri = "ipfs://QmYx6GsYAKnNzZ9A6NvEKV9nf1VaDzJrqDR23Y8YSkebLU";
     uint256 public constant LEGENDARY_RARITY = 5;
     string private constant LEGENDARY = "legendary";
@@ -58,6 +63,7 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @param _feeAddress the address to send the fees to
     /// @param _raffleDuration the duration in seconds of the raffle
     constructor(uint256 _entranceFee, address _feeAddress, uint256 _raffleDuration) ERC721("Puppy Raffle", "PR") {
+        // @audit- there should be checks for address(0).
         entranceFee = _entranceFee;
         feeAddress = _feeAddress;
         raffleDuration = _raffleDuration;
@@ -76,8 +82,10 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice they have to pay the entrance fee * the number of players
     /// @notice duplicate entrants are not allowed
     /// @param newPlayers the list of players to enter the raffle
+    // @audit-gas: enterRaffle can be external as not used in this contract anywhere
     function enterRaffle(address[] memory newPlayers) public payable {
         require(msg.value == entranceFee * newPlayers.length, "PuppyRaffle: Must send enough to enter raffle");
+        // @audit save-gas: instead of newPlayers.length use uint256 plength = newPlayers.length and use plength.
         for (uint256 i = 0; i < newPlayers.length; i++) {
             players.push(newPlayers[i]);
         }
@@ -94,6 +102,7 @@ contract PuppyRaffle is ERC721, Ownable {
 
     /// @param playerIndex the index of the player to refund. You can find it externally by calling `getActivePlayerIndex`
     /// @dev This function will allow there to be blank spots in the array
+    // @audit-gas: refund can be external as not used in this contract anywhere
     function refund(uint256 playerIndex) public {
         address playerAddress = players[playerIndex];
         require(playerAddress == msg.sender, "PuppyRaffle: Only the player can refund");
@@ -127,10 +136,13 @@ contract PuppyRaffle is ERC721, Ownable {
     function selectWinner() external {
         require(block.timestamp >= raffleStartTime + raffleDuration, "PuppyRaffle: Raffle not over");
         require(players.length >= 4, "PuppyRaffle: Need at least 4 players");
+        // @audit should use chainlink vrf to generate proper random number its safe approach.
         uint256 winnerIndex =
             uint256(keccak256(abi.encodePacked(msg.sender, block.timestamp, block.difficulty))) % players.length;
         address winner = players[winnerIndex];
         uint256 totalAmountCollected = players.length * entranceFee;
+
+        // @audit instead of using magic numbers use constants
         uint256 prizePool = (totalAmountCollected * 80) / 100;
         uint256 fee = (totalAmountCollected * 20) / 100;
 
@@ -155,12 +167,15 @@ contract PuppyRaffle is ERC721, Ownable {
         previousWinner = winner;
         (bool success,) = winner.call{value: prizePool}("");
         require(success, "PuppyRaffle: Failed to send prize pool to winner");
+        // @audit should white the below code above .call
         _safeMint(winner, tokenId);
     }
 
     /// @notice this function will withdraw the fees to the feeAddress
     function withdrawFees() external {
         // @audit mishandelling of eth here.
+        // @audit should check here if the receivers address is 0 or what if reverts???
+        // @audit can emit an event here as state is changing somehow
         require(address(this).balance == uint256(totalFees), "PuppyRaffle: There are currently players active!");
         uint256 feesToWithdraw = totalFees;
         totalFees = 0;
